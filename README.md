@@ -54,3 +54,7 @@ You can add something like this to your stylesheet:
 By default transition duration is set to 600ms. You can change this by adding this to your stylesheet (keep browser vendor prefixes):
 
 	.flipper-tilewrap, .flipper-tilefront, .flipper-tileback { -webkit-transition: .4s; -moz-transition: .4s; -ms-transition: .4s; -o-transition: .4s; transition: .4s; }
+
+## Demo
+
+[http://fffilo.github.io/demo/flipper/](http://fffilo.github.io/demo/flipper/)
