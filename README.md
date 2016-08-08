@@ -6,7 +6,7 @@ Create a CSS Flipping Animation based on [David Walsh's solution](https://davidw
 
 	<div class="flipper-board">
 		<div class="flipper-tile">
-			<div class="flipper-tilewrap">
+			<div class="flipper-tilewrap" ontouchstart="this.classList.toggle('hover');">
 				<div class="flipper-tilefront">
 					First tile front
 				</div>
