@@ -45,6 +45,21 @@ export default function NewsSwiper({
   const prevIndexRef = useRef(0);
   const { trackDwell, trackClick } = usePreferences();
 
+  // Pre-fetch inteligente das próximas imagens (UX fluida estilo Stories/TikTok)
+  useEffect(() => {
+    const nextArticles = [
+      articles[activeIndex + 1],
+      articles[activeIndex + 2],
+    ].filter(Boolean);
+
+    nextArticles.forEach(item => {
+      if (item?.imageUrl && !item.imageUrl.includes('placehold.co')) {
+        const img = new Image();
+        img.src = item.imageUrl;
+      }
+    });
+  }, [activeIndex, articles]);
+
   const showLoader = isLoadingMore || hasMore;
   const totalSlidesRef = useRef(0);
   totalSlidesRef.current = articles.length + (showLoader ? 1 : 0);

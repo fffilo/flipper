@@ -107,24 +107,46 @@ export default function NewsItem({ article, isActive, shouldFetchSummary, onArti
           )}
         </div>
 
-        <div className="mt-3 sm:mt-4 flex items-end justify-between">
-          <div>
+        <div className="mt-3 sm:mt-4 flex items-end justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              {article.sourceName && (
+                <span
+                  className="font-body text-xs font-semibold px-2 py-0.5 rounded-full backdrop-blur-sm text-white"
+                  style={{
+                    backgroundColor: article.brandColor || article.source?.brandColor || '#29ABE2',
+                  }}
+                >
+                  {article.sourceName}
+                </span>
+              )}
+              {article.relativeTime && (
+                <span className="text-xs text-white/70 font-body">
+                  • {article.relativeTime}
+                </span>
+              )}
+            </div>
+
+            {article.relatedSources && article.relatedSources.length > 0 && (
+              <p className="text-[11px] text-white/60">
+                Também coberto por: {article.relatedSources.map(s => s.name).join(', ')}
+              </p>
+            )}
+
             {isAi && !loadingAi && (
               <p className="text-xs text-muted-foreground italic mb-0.5">Resumido por IA</p>
             )}
-            {article.sourceName && (
-              <p className="font-body text-sm font-medium text-foreground">{article.sourceName}</p>
-            )}
           </div>
+
           <Button
             onClick={handleOpen}
             variant="outline"
             size="sm"
-            className="font-body"
+            className="font-body shrink-0 border-white/20 bg-black/40 hover:bg-black/60 text-white"
             disabled={!article.originalUrl || article.originalUrl === '#'}
           >
-            <ExternalLink className="mr-2 h-4 w-4" />
-            Leia na íntegra
+            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+            Ler matéria
           </Button>
         </div>
       </div>

@@ -5,21 +5,24 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
-  SheetDescription, SheetFooter, SheetClose,
+  SheetDescription,
 } from '@/components/ui/sheet';
-import { Badge } from '@/components/ui/badge';
 import type { FeedSource } from '@/types';
-import { PlusCircle, Trash2, Search, RotateCw, Eye, EyeOff, ListChecks, Link, Globe } from 'lucide-react';
+import { Trash2, Search, RotateCw, Eye, EyeOff, Globe2, Sparkles, Laptop, PlusCircle, Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { discoverFeed, type FeedSuggestion } from '@/app/actions';
+import { discoverFeedFromUrl } from '@/lib/news-engine/discovery';
+
+export type FeedFilter = 'all' | 'br' | 'world' | 'tech';
 
 interface FeedManagerProps {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   feedSources: FeedSource[];
   onFeedSourcesChange: (feedSources: FeedSource[]) => void;
-  seenArticleIds: string[];
-  onSeenArticleIdsChange: (ids: string[]) => void;
+  currentFilter: FeedFilter;
+  onFilterChange: (filter: FeedFilter) => void;
+  onRefresh: () => void;
+  isRefreshing?: boolean;
 }
 
 export default function FeedManager({
@@ -27,294 +30,242 @@ export default function FeedManager({
   onOpenChange,
   feedSources,
   onFeedSourcesChange,
-  seenArticleIds,
-  onSeenArticleIdsChange,
+  currentFilter,
+  onFilterChange,
+  onRefresh,
+  isRefreshing = false,
 }: FeedManagerProps) {
-  const [newFeedName, setNewFeedName] = useState('');
-  const [newFeedUrl, setNewFeedUrl] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [suggestions, setSuggestions] = useState<FeedSuggestion[]>([]);
-  const [searchDone, setSearchDone] = useState(false);
   const { toast } = useToast();
-
-  const handleAddFeed = () => {
-    if (!newFeedName.trim() || !newFeedUrl.trim()) {
-      toast({ title: 'Preencha o nome e a URL do feed.', variant: 'destructive' });
-      return;
-    }
-    try {
-      new URL(newFeedUrl);
-    } catch {
-      toast({ title: 'URL inválida', description: 'Insira uma URL completa (ex: https://...)', variant: 'destructive' });
-      return;
-    }
-    if (feedSources.some(f => f.url === newFeedUrl.trim())) {
-      toast({ title: 'Feed já existe', description: 'Este feed já está na sua lista.', variant: 'destructive' });
-      return;
-    }
-
-    const newFeed: FeedSource = {
-      id: Date.now().toString(),
-      name: newFeedName.trim(),
-      url: newFeedUrl.trim(),
-      isHidden: false,
-    };
-    onFeedSourcesChange([...feedSources, newFeed]);
-    setNewFeedName('');
-    setNewFeedUrl('');
-    toast({ title: 'Feed adicionado', description: `"${newFeed.name}" foi adicionado.` });
-  };
-
-  const handleRemoveFeed = (id: string) => {
-    onFeedSourcesChange(feedSources.filter(f => f.id !== id));
-    toast({ title: 'Feed removido.' });
-  };
 
   const handleToggleVisibility = (id: string) => {
     const updated = feedSources.map(f => f.id === id ? { ...f, isHidden: !f.isHidden } : f);
     onFeedSourcesChange(updated);
     const feed = updated.find(f => f.id === id);
-    toast({ title: feed?.isHidden ? 'Feed oculto' : 'Feed visível', description: `"${feed?.name}"` });
+    toast({
+      title: feed?.isHidden ? 'Fonte desativada' : 'Fonte ativada',
+      description: feed?.name,
+    });
+  };
+
+  const handleRemoveFeed = (id: string) => {
+    onFeedSourcesChange(feedSources.filter(f => f.id !== id));
+    toast({ title: 'Fonte removida da lista.' });
   };
 
   const handleDiscover = async () => {
-    if (!searchQuery.trim()) {
-      toast({ title: 'Digite um tópico ou URL para buscar.', variant: 'destructive' });
-      return;
-    }
-
+    if (!searchQuery.trim()) return;
     setIsSearching(true);
-    setSuggestions([]);
-    setSearchDone(false);
 
     try {
-      const results = await discoverFeed(searchQuery);
-      setSuggestions(results);
-      setSearchDone(true);
+      const discovered = await discoverFeedFromUrl(searchQuery);
+      if (discovered) {
+        if (feedSources.some(f => f.url === discovered.url)) {
+          toast({ title: 'Fonte já existente', description: `"${discovered.name}" já está na lista.` });
+        } else {
+          onFeedSourcesChange([...feedSources, {
+            id: discovered.id,
+            name: discovered.name,
+            url: discovered.url,
+            isHidden: false,
+            category: discovered.category,
+            region: discovered.region,
+            brandColor: discovered.brandColor,
+          }]);
+          toast({ title: 'Fonte descoberta!', description: `"${discovered.name}" foi adicionada com sucesso.` });
+          setSearchQuery('');
+        }
+      } else {
+        toast({
+          title: 'Não encontramos o feed',
+          description: 'Verifique se o site possui RSS ou tente digitar o link direto.',
+          variant: 'destructive',
+        });
+      }
     } catch {
-      toast({ title: 'Erro ao buscar feed.', description: 'Tente novamente mais tarde.', variant: 'destructive' });
-      setSearchDone(true);
+      toast({
+        title: 'Erro ao buscar',
+        description: 'Tente novamente com outro domínio.',
+        variant: 'destructive',
+      });
     } finally {
       setIsSearching(false);
     }
   };
 
-  const handleAddSuggestion = (suggestion: FeedSuggestion) => {
-    if (feedSources.some(f => f.url === suggestion.url)) {
-      toast({ title: 'Feed já existe', description: `"${suggestion.name}" já está na sua lista.`, variant: 'destructive' });
-      return;
-    }
-    onFeedSourcesChange([...feedSources, {
-      id: Date.now().toString(),
-      name: suggestion.name,
-      url: suggestion.url,
-      isHidden: false,
-    }]);
-    setSuggestions(prev => prev.filter(s => s.url !== suggestion.url));
-    toast({ title: 'Feed adicionado', description: `"${suggestion.name}" foi adicionado.` });
-  };
-
-  const handleClearHistory = () => {
-    onSeenArticleIdsChange([]);
-    toast({ title: 'Histórico limpo', description: 'Todas as notícias voltarão a aparecer.' });
-  };
-
-  const visibleCount = feedSources.filter(f => !f.isHidden).length;
-
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
-      <SheetContent className="bg-card text-card-foreground w-full sm:max-w-lg flex flex-col">
-        <SheetHeader className="p-6 border-b border-border">
-          <SheetTitle className="font-headline text-2xl">Configurações</SheetTitle>
-          <SheetDescription>
-            Gerencie seus feeds e histórico de leitura.
+      <SheetContent className="bg-card text-card-foreground w-full sm:max-w-md flex flex-col p-0 border-l border-border/40">
+        <SheetHeader className="p-6 border-b border-border/40">
+          <SheetTitle className="font-headline text-2xl font-bold flex items-center justify-between">
+            Preferências & Feeds
+          </SheetTitle>
+          <SheetDescription className="text-xs text-muted-foreground">
+            Alterne o modo de leitura e gerencie suas fontes de notícias.
           </SheetDescription>
         </SheetHeader>
 
         <div className="flex-grow p-6 space-y-6 overflow-y-auto no-scrollbar">
+          {/* Seletor de Tópico / Região */}
+          <div className="space-y-3">
+            <h3 className="font-headline text-sm font-semibold text-foreground/90 uppercase tracking-wider">
+              Foco do Feed
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => { onFilterChange('all'); onOpenChange(false); }}
+                className={`p-3 rounded-xl border text-left transition-all flex flex-col gap-1.5 ${
+                  currentFilter === 'all'
+                    ? 'bg-primary/15 border-primary text-foreground'
+                    : 'bg-muted/40 border-border/40 text-muted-foreground hover:bg-muted/70'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  {currentFilter === 'all' && <Check className="w-3.5 h-3.5 text-primary" />}
+                </div>
+                <span className="text-xs font-semibold">Em Destaque</span>
+                <span className="text-[10px] opacity-75">Todas as fontes e temas</span>
+              </button>
 
-          {/* Descobrir feed */}
-          <div className="space-y-3 p-4 border border-border rounded-lg">
-            <div className="flex items-center gap-2">
-              <Globe className="h-4 w-4 text-primary" />
-              <h3 className="font-headline text-base font-semibold">Encontrar Feed</h3>
+              <button
+                onClick={() => { onFilterChange('br'); onOpenChange(false); }}
+                className={`p-3 rounded-xl border text-left transition-all flex flex-col gap-1.5 ${
+                  currentFilter === 'br'
+                    ? 'bg-primary/15 border-primary text-foreground'
+                    : 'bg-muted/40 border-border/40 text-muted-foreground hover:bg-muted/70'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">🇧🇷</span>
+                  {currentFilter === 'br' && <Check className="w-3.5 h-3.5 text-primary" />}
+                </div>
+                <span className="text-xs font-semibold">Brasil</span>
+                <span className="text-[10px] opacity-75">Política, economia e fatos</span>
+              </button>
+
+              <button
+                onClick={() => { onFilterChange('world'); onOpenChange(false); }}
+                className={`p-3 rounded-xl border text-left transition-all flex flex-col gap-1.5 ${
+                  currentFilter === 'world'
+                    ? 'bg-primary/15 border-primary text-foreground'
+                    : 'bg-muted/40 border-border/40 text-muted-foreground hover:bg-muted/70'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <Globe2 className="w-4 h-4 text-primary" />
+                  {currentFilter === 'world' && <Check className="w-3.5 h-3.5 text-primary" />}
+                </div>
+                <span className="text-xs font-semibold">Internacional</span>
+                <span className="text-[10px] opacity-75">Cobertura global e geopolítica</span>
+              </button>
+
+              <button
+                onClick={() => { onFilterChange('tech'); onOpenChange(false); }}
+                className={`p-3 rounded-xl border text-left transition-all flex flex-col gap-1.5 ${
+                  currentFilter === 'tech'
+                    ? 'bg-primary/15 border-primary text-foreground'
+                    : 'bg-muted/40 border-border/40 text-muted-foreground hover:bg-muted/70'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <Laptop className="w-4 h-4 text-primary" />
+                  {currentFilter === 'tech' && <Check className="w-3.5 h-3.5 text-primary" />}
+                </div>
+                <span className="text-xs font-semibold">Tecnologia</span>
+                <span className="text-[10px] opacity-75">Inovação, IA e gadgets</span>
+              </button>
             </div>
+          </div>
+
+          {/* Descobrir Novo Feed */}
+          <div className="space-y-2.5 p-4 bg-muted/20 border border-border/50 rounded-xl">
+            <h3 className="font-headline text-sm font-semibold text-foreground/90 flex items-center gap-2">
+              <PlusCircle className="w-4 h-4 text-primary" />
+              Adicionar Novo Portal
+            </h3>
             <p className="text-xs text-muted-foreground">
-              Cole uma URL de site/feed ou escreva um tópico (ex: "futebol", "tecnologia", "BBC Brasil").
+              Digite o domínio de qualquer site (ex: <code>olhardigital.com.br</code> ou <code>theverge.com</code>). O sistema descobre o feed sozinho.
             </p>
             <div className="flex gap-2">
               <Input
-                placeholder="tecnologia, g1.globo.com, https://..."
+                placeholder="ex: folha.uol.com.br"
                 value={searchQuery}
-                onChange={e => { setSearchQuery(e.target.value); setSuggestions([]); setSearchDone(false); }}
-                className="bg-input text-foreground placeholder:text-muted-foreground flex-grow"
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleDiscover(); }}
+                className="bg-background text-sm h-9"
                 disabled={isSearching}
-                onKeyDown={e => { if (e.key === 'Enter' && !isSearching) handleDiscover(); }}
               />
               <Button
                 onClick={handleDiscover}
                 disabled={isSearching || !searchQuery.trim()}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground px-3 shrink-0"
+                size="sm"
+                className="h-9 px-3"
               >
-                {isSearching ? <RotateCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                {isSearching ? <RotateCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              </Button>
+            </div>
+          </div>
+
+          {/* Lista de Fontes Ativas */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-headline text-sm font-semibold text-foreground/90 uppercase tracking-wider">
+                Fontes Cadastradas ({feedSources.filter(f => !f.isHidden).length})
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { onRefresh(); toast({ title: 'Atualizando feed...' }); }}
+                disabled={isRefreshing}
+                className="h-7 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <RotateCw className={`w-3 h-3 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} />
+                Recarregar
               </Button>
             </div>
 
-            {/* Sugestões */}
-            {isSearching && (
-              <div className="text-xs text-muted-foreground text-center py-2 animate-pulse">
-                Buscando feeds compatíveis...
-              </div>
-            )}
+            <div className="space-y-2">
+              {feedSources.map(f => (
+                <div
+                  key={f.id}
+                  className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+                    f.isHidden ? 'bg-muted/10 opacity-50 border-border/20' : 'bg-muted/30 border-border/40'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 overflow-hidden">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: f.brandColor || '#29ABE2' }}
+                    />
+                    <div className="overflow-hidden">
+                      <p className="text-xs font-semibold text-foreground truncate">{f.name}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">{f.url}</p>
+                    </div>
+                  </div>
 
-            {!isSearching && searchDone && suggestions.length === 0 && (
-              <div className="text-xs text-muted-foreground text-center py-2">
-                Nenhum feed compatível encontrado. Tente outro termo ou cole a URL do feed.
-              </div>
-            )}
-
-            {suggestions.length > 0 && (
-              <ul className="space-y-2 pt-1">
-                {suggestions.map(s => {
-                  const alreadyAdded = feedSources.some(f => f.url === s.url);
-                  return (
-                    <li
-                      key={s.url}
-                      className="flex items-center justify-between gap-2 p-2.5 bg-background/60 border border-border/50 rounded-md"
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
+                    <button
+                      onClick={() => handleToggleVisibility(f.id)}
+                      className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                      title={f.isHidden ? 'Ativar fonte' : 'Desativar fonte'}
                     >
-                      <div className="flex-1 overflow-hidden">
-                        <p className="text-sm font-medium text-foreground truncate">{s.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{s.url}</p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant={alreadyAdded ? 'secondary' : 'default'}
-                        disabled={alreadyAdded}
-                        onClick={() => handleAddSuggestion(s)}
-                        className="shrink-0 text-xs"
-                      >
-                        {alreadyAdded ? 'Adicionado' : '+ Adicionar'}
-                      </Button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-
-          {/* Adicionar feed manualmente */}
-          <div className="space-y-3 p-4 border border-border rounded-lg">
-            <div className="flex items-center gap-2">
-              <Link className="h-4 w-4 text-primary" />
-              <h3 className="font-headline text-base font-semibold">Adicionar Manualmente</h3>
+                      {f.isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5 text-primary" />}
+                    </button>
+                    <button
+                      onClick={() => handleRemoveFeed(f.id)}
+                      className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive"
+                      title="Remover fonte"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-            <Input
-              placeholder="Nome (ex: G1 Brasil)"
-              value={newFeedName}
-              onChange={e => setNewFeedName(e.target.value)}
-              className="bg-input text-foreground placeholder:text-muted-foreground"
-            />
-            <Input
-              type="url"
-              placeholder="URL do feed RSS (https://...)"
-              value={newFeedUrl}
-              onChange={e => setNewFeedUrl(e.target.value)}
-              className="bg-input text-foreground placeholder:text-muted-foreground"
-              onKeyDown={e => { if (e.key === 'Enter') handleAddFeed(); }}
-            />
-            <Button onClick={handleAddFeed} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
-              <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Feed
-            </Button>
-          </div>
-
-          {/* Histórico */}
-          <div className="space-y-3 p-4 border border-border rounded-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ListChecks className="h-4 w-4 text-primary" />
-                <h3 className="font-headline text-base font-semibold">Histórico de Leitura</h3>
-              </div>
-              {seenArticleIds.length > 0 && (
-                <Badge variant="secondary">{seenArticleIds.length} lidas</Badge>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Notícias já vistas ficam marcadas para não aparecerem novamente. O histórico é salvo no seu dispositivo.
-            </p>
-            <Button
-              onClick={handleClearHistory}
-              variant="outline"
-              className="w-full"
-              disabled={seenArticleIds.length === 0}
-            >
-              Limpar Histórico
-            </Button>
-          </div>
-
-          {/* Lista de feeds */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-headline text-base font-semibold">Meus Feeds</h3>
-              <span className="text-xs text-muted-foreground">
-                {visibleCount} ativo{visibleCount !== 1 ? 's' : ''}
-              </span>
-            </div>
-
-            {feedSources.length === 0 ? (
-              <p className="text-muted-foreground text-sm text-center py-4">
-                Nenhum feed adicionado ainda.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {feedSources.map(feed => (
-                  <li
-                    key={feed.id}
-                    className={`flex items-center justify-between p-3 bg-background/50 rounded-md border border-border/50 transition-opacity ${feed.isHidden ? 'opacity-50' : 'opacity-100'}`}
-                  >
-                    <div className="flex-1 overflow-hidden mr-2">
-                      <p
-                        className={`font-medium text-sm text-foreground truncate ${feed.isHidden ? 'line-through' : ''}`}
-                        title={feed.name}
-                      >
-                        {feed.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate" title={feed.url}>
-                        {feed.url}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleToggleVisibility(feed.id)}
-                        className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-white/10"
-                        aria-label={feed.isHidden ? 'Mostrar feed' : 'Ocultar feed'}
-                      >
-                        {feed.isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleRemoveFeed(feed.id)}
-                        className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                        aria-label="Remover feed"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
         </div>
-
-        <SheetFooter className="p-6 border-t border-border">
-          <SheetClose asChild>
-            <Button variant="outline" className="w-full">Fechar</Button>
-          </SheetClose>
-        </SheetFooter>
       </SheetContent>
     </Sheet>
   );
