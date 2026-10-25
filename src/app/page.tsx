@@ -14,15 +14,16 @@ import useLocalStorage from '@/hooks/useLocalStorage';
 export default function Home() {
   const [filter, setFilter] = useState<FeedFilter>('all');
   const [isFeedManagerOpen, setIsFeedManagerOpen] = useState(false);
-  const [articles, setArticles] = useState<NewsArticle[]>([]);
+  const [sessionArticles, setSessionArticles] = useState<NewsArticle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Armazena hashes compactos de 8 caracteres das notícias já vistas
+  // Hashes compactos de 8 caracteres das notícias já vistas no localStorage
   const [seenArticleIds, setSeenArticleIds] = useLocalStorage<string[]>('flippy-seenArticleIds', []);
   const [feedSources, setFeedSources] = useLocalStorage<FeedSource[]>('flippy-feedSources', DEFAULT_FEEDS);
 
+  // Carrega e monta a fila de leitura estável da sessão
   const loadFeed = useCallback(async (currentFilter: FeedFilter, isPullRefresh = false) => {
     if (isPullRefresh) setIsRefreshing(true);
     else setIsLoading(true);
@@ -38,11 +39,53 @@ export default function Home() {
       if (!res.ok) throw new Error(`Falha ao carregar notícias (${res.status})`);
 
       const data = await res.json();
-      if (data.articles && data.articles.length > 0) {
-        setArticles(data.articles);
-      } else {
+      const rawArticles: NewsArticle[] = data.articles || [];
+
+      if (rawArticles.length === 0) {
         setError('Nenhuma notícia recente encontrada no momento.');
+        setSessionArticles([]);
+        return;
       }
+
+      // Snapshot estável para a sessão:
+      // O feed NÃO se reordena enquanto o usuário lê para evitar scrolls automáticos
+      const seenSet = new Set(seenArticleIds);
+      const unreadToday = rawArticles.filter(a => a.dayBucket === 'today' && !seenSet.has(a.id));
+      const unreadPrevious = rawArticles.filter(a => a.dayBucket !== 'today' && !seenSet.has(a.id));
+      const seenArticles = rawArticles.filter(a => seenSet.has(a.id));
+
+      let queue: NewsArticle[] = [];
+
+      if (unreadToday.length > 0) {
+        if (unreadPrevious.length > 0) {
+          const dividerCard: NewsArticle = {
+            id: 'divider-previous-news',
+            title: 'Você está em dia com as novidades de hoje! 🎉',
+            description: 'Deslize para ver as notícias de ontem e dias anteriores que você ainda não conferiu.',
+            imageUrl: '',
+            originalUrl: '#',
+            isDivider: true,
+          };
+          queue = [...unreadToday, dividerCard, ...unreadPrevious];
+        } else {
+          queue = unreadToday;
+        }
+      } else if (unreadPrevious.length > 0) {
+        const dividerCard: NewsArticle = {
+          id: 'divider-starting-previous',
+          title: 'Tudo lido de hoje! 🌅',
+          description: 'Você já conferiu todas as notícias de hoje. Continuando com as matérias de ontem e anteriores...',
+          imageUrl: '',
+          originalUrl: '#',
+          isDivider: true,
+        };
+        queue = [dividerCard, ...unreadPrevious];
+      } else {
+        // Se tudo já foi lido, exibe a lista para rever
+        queue = seenArticles;
+      }
+
+      setSessionArticles(queue);
     } catch (e: any) {
       console.error('[loadFeed] erro:', e);
       setError('Não foi possível conectar às fontes de notícias. Verifique sua conexão.');
@@ -50,6 +93,7 @@ export default function Home() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -60,7 +104,6 @@ export default function Home() {
     (ids: string[] | ((prev: string[]) => string[])) => {
       setSeenArticleIds(prev => {
         const next = typeof ids === 'function' ? ids(prev) : ids;
-        // Mantém os últimos 1000 hashes compactos (~8 KB no localStorage)
         return next.length > 1000 ? next.slice(-1000) : next;
       });
     },
@@ -69,55 +112,8 @@ export default function Home() {
 
   const handleClearHistory = useCallback(() => {
     setSeenArticleIds([]);
-  }, [setSeenArticleIds]);
-
-  // Fila Inteligente: Não lidas de hoje -> Aviso de transição -> Não lidas anteriores -> Vistas
-  const feedQueue = useMemo(() => {
-    if (articles.length === 0) return [];
-    const seenSet = new Set(seenArticleIds);
-
-    const unreadToday = articles.filter(a => a.dayBucket === 'today' && !seenSet.has(a.id));
-    const unreadPrevious = articles.filter(a => a.dayBucket !== 'today' && !seenSet.has(a.id));
-    const seenArticles = articles.filter(a => seenSet.has(a.id));
-
-    // 1. Há notícias não lidas de hoje
-    if (unreadToday.length > 0) {
-      if (unreadPrevious.length > 0) {
-        const dividerCard: NewsArticle = {
-          id: 'divider-previous-news',
-          title: 'Você está em dia com as novidades de hoje! 🎉',
-          description: 'Deslize para ver as notícias de ontem e dias anteriores que você ainda não conferiu.',
-          imageUrl: '',
-          originalUrl: '#',
-          isDivider: true,
-        };
-        return [...unreadToday, dividerCard, ...unreadPrevious];
-      }
-      return unreadToday;
-    }
-
-    // 2. Todas de hoje lidas, mas há de ontem/anteriores
-    if (unreadPrevious.length > 0) {
-      const dividerCard: NewsArticle = {
-        id: 'divider-starting-previous',
-        title: 'Tudo lido de hoje! 🌅',
-        description: 'Você já conferiu todas as notícias de hoje. Continuando com as matérias de ontem e anteriores...',
-        imageUrl: '',
-        originalUrl: '#',
-        isDivider: true,
-      };
-      return [dividerCard, ...unreadPrevious];
-    }
-
-    // 3. Tudo foi lido!
-    return seenArticles;
-  }, [articles, seenArticleIds]);
-
-  const allArticlesRead = useMemo(() => {
-    if (articles.length === 0) return false;
-    const seenSet = new Set(seenArticleIds);
-    return articles.every(a => seenSet.has(a.id));
-  }, [articles, seenArticleIds]);
+    loadFeed(filter, true);
+  }, [setSeenArticleIds, loadFeed, filter]);
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-background">
@@ -168,33 +164,10 @@ export default function Home() {
         </div>
       )}
 
-      {/* Tela quando o usuário já leu todas as notícias disponíveis */}
-      {!isLoading && !error && allArticlesRead && (
-        <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-b from-[#121212] via-[#1a2230] to-[#121212] text-foreground p-6 text-center">
-          <div className="bg-black/50 backdrop-blur-lg p-8 rounded-3xl border border-white/10 max-w-sm shadow-2xl flex flex-col items-center">
-            <div className="w-16 h-16 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center mb-5 shadow-lg shadow-primary/20">
-              <CheckCircle2 className="w-8 h-8 text-primary" />
-            </div>
-            <h2 className="font-headline text-2xl font-bold text-white mb-2">Tudo em Dia!</h2>
-            <p className="text-sm text-white/70 mb-6 leading-relaxed">
-              Você já leu todas as notícias disponíveis no momento. Volte mais tarde para novas atualizações ou redefina o histórico para rever.
-            </p>
-            <Button
-              onClick={handleClearHistory}
-              variant="outline"
-              className="w-full border-white/20 bg-white/5 hover:bg-white/10 text-white font-body"
-            >
-              <RotateCcw className="w-4 h-4 mr-2" />
-              Rever Notícias Lidas
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* Feed Principal com NewsSwiper */}
-      {!isLoading && !error && !allArticlesRead && feedQueue.length > 0 && (
+      {!isLoading && !error && sessionArticles.length > 0 && (
         <NewsSwiper
-          articles={feedQueue}
+          articles={sessionArticles}
           seenArticleIds={seenArticleIds}
           setSeenArticleIds={handleSeenArticleIds}
           onOpenFeedManager={() => setIsFeedManagerOpen(true)}

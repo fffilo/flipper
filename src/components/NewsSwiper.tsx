@@ -150,20 +150,51 @@ export default function NewsSwiper({
     activatedAt.current = now;
   }, [activeIndex]);
 
-  // Marcar como visto
+  // Marcar como visto (com debounce de 1.5s de permanência na notícia)
   useEffect(() => {
     const article = articles[activeIndex];
-    if (!article) return;
-    if (!seenArticleIds.includes(article.id)) {
-      setSeenArticleIds(prev => prev.includes(article.id) ? prev : [...prev, article.id]);
+    if (!article || article.isDivider) return;
+
+    const timer = setTimeout(() => {
+      setSeenArticleIds(prev => {
+        if (prev.includes(article.id)) return prev;
+        return [...prev, article.id];
+      });
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [activeIndex, articles, setSeenArticleIds]);
+
+  // Navegação por roda do mouse no desktop / notebook
+  useEffect(() => {
+    let lastWheelTime = 0;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) < 30) return;
+      const now = Date.now();
+      if (now - lastWheelTime < 480) return; // Debounce de transição
+      lastWheelTime = now;
+
+      if (e.deltaY > 0) {
+        goToIndex(activeIndexRef.current + 1);
+      } else {
+        goToIndex(activeIndexRef.current - 1);
+      }
+    };
+
+    const vp = viewportRef.current;
+    if (vp) {
+      vp.addEventListener('wheel', onWheel, { passive: true });
     }
-  }, [activeIndex, articles]);
+    return () => {
+      if (vp) vp.removeEventListener('wheel', onWheel);
+    };
+  }, [goToIndex]);
 
   // Navegação por teclado
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown') goToIndex(activeIndexRef.current + 1);
-      if (e.key === 'ArrowUp') goToIndex(activeIndexRef.current - 1);
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') goToIndex(activeIndexRef.current + 1);
+      if (e.key === 'ArrowUp' || e.key === 'PageUp') goToIndex(activeIndexRef.current - 1);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
