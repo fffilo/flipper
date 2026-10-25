@@ -38,8 +38,26 @@ export const SEED_SOURCES: FeedSourceConfig[] = [
     brandColor: '#c4170c',
     enabled: true,
   },
+  {
+    id: 'g1-economia',
+    name: 'G1 Economia',
+    url: 'https://g1.globo.com/rss/g1/economia/',
+    category: 'economy',
+    region: 'br',
+    brandColor: '#c4170c',
+    enabled: true,
+  },
+  {
+    id: 'poder360',
+    name: 'Poder360',
+    url: 'https://www.poder360.com.br/feed/',
+    category: 'politics',
+    region: 'br',
+    brandColor: '#1a56a2',
+    enabled: true,
+  },
 
-  // Tecnologia & Ciência
+  // Tecnologia & Inovação
   {
     id: 'tecnoblog',
     name: 'Tecnoblog',
@@ -47,6 +65,24 @@ export const SEED_SOURCES: FeedSourceConfig[] = [
     category: 'tech',
     region: 'br',
     brandColor: '#ff8000',
+    enabled: true,
+  },
+  {
+    id: 'g1-tecnologia',
+    name: 'G1 Tecnologia',
+    url: 'https://g1.globo.com/rss/g1/tecnologia/',
+    category: 'tech',
+    region: 'br',
+    brandColor: '#c4170c',
+    enabled: true,
+  },
+  {
+    id: 'olhar-digital',
+    name: 'Olhar Digital',
+    url: 'https://olhardigital.com.br/feed/',
+    category: 'tech',
+    region: 'br',
+    brandColor: '#0070f3',
     enabled: true,
   },
   {
@@ -76,6 +112,15 @@ export const SEED_SOURCES: FeedSourceConfig[] = [
     category: 'world',
     region: 'world',
     brandColor: '#0055aa',
+    enabled: true,
+  },
+  {
+    id: 'al-jazeera',
+    name: 'Al Jazeera',
+    url: 'https://www.aljazeera.com/xml/rss/all.xml',
+    category: 'world',
+    region: 'world',
+    brandColor: '#f38a00',
     enabled: true,
   },
 ];

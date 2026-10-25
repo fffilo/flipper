@@ -12,6 +12,7 @@ interface CacheEntry {
 
 const FRESH_TTL_MS = 4 * 60 * 1000;      // 4 minutos: responde na hora da RAM
 const STALE_TTL_MS = 60 * 60 * 1000;     // 1 hora: responde stale e revalida em background
+const DEFAULT_PAGE_SIZE = 15;
 
 declare global {
   var __flippy_news_cache__: Map<string, CacheEntry> | undefined;
@@ -54,47 +55,71 @@ export async function aggregateFeeds(options?: {
   // Ordena preliminarmente por data decrescente
   allArticles.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
 
-  // Aplica Quality Gates: Frescor, Imagens válidas, Deduplicação e Intercalação
+  // Aplica Quality Gates: Frescor, Imagens válidas, Deduplicação e Segmentação por Janela Temporal
   return applyQualityGates(allArticles);
 }
 
 export async function getFeedSWR(options?: {
   region?: 'br' | 'world';
   category?: string;
-}): Promise<{ articles: CleanArticle[]; source: 'FRESH' | 'STALE' | 'MISS' }> {
+  page?: number;
+  limit?: number;
+}): Promise<{
+  articles: CleanArticle[];
+  hasMore: boolean;
+  total: number;
+  source: 'FRESH' | 'STALE' | 'MISS';
+}> {
   const key = `${options?.region || 'all'}:${options?.category || 'all'}`;
-  const cached = cache.get(key);
+  const page = Math.max(1, options?.page || 1);
+  const limit = Math.max(1, options?.limit || DEFAULT_PAGE_SIZE);
+
+  let cached = cache.get(key);
   const now = Date.now();
+  let cacheSource: 'FRESH' | 'STALE' | 'MISS' = 'MISS';
 
   // 1. FRESH HIT (< 4 minutos)
   if (cached && now - cached.timestamp < FRESH_TTL_MS) {
-    return { articles: cached.articles, source: 'FRESH' };
+    cacheSource = 'FRESH';
   }
-
   // 2. STALE HIT (< 1 hora) -> Responde na hora e atualiza em background
-  if (cached && now - cached.timestamp < STALE_TTL_MS) {
-    if (!cached.isRevalidating) {
-      cached.isRevalidating = true;
+  else if (cached && now - cached.timestamp < STALE_TTL_MS) {
+    cacheSource = 'STALE';
+    const entry = cached;
+    if (!entry.isRevalidating) {
+      entry.isRevalidating = true;
       aggregateFeeds(options)
         .then(freshArticles => {
           if (freshArticles.length > 0) {
             cache.set(key, { articles: freshArticles, timestamp: Date.now(), isRevalidating: false });
           } else {
-            cached.isRevalidating = false;
+            entry.isRevalidating = false;
           }
         })
         .catch(() => {
-          cached.isRevalidating = false;
+          entry.isRevalidating = false;
         });
     }
-    return { articles: cached.articles, source: 'STALE' };
   }
-
   // 3. CACHE MISS -> Busca na hora
-  const fresh = await aggregateFeeds(options);
-  if (fresh.length > 0) {
-    cache.set(key, { articles: fresh, timestamp: now, isRevalidating: false });
+  else {
+    cacheSource = 'MISS';
+    const fresh = await aggregateFeeds(options);
+    if (fresh.length > 0) {
+      cache.set(key, { articles: fresh, timestamp: now, isRevalidating: false });
+      cached = { articles: fresh, timestamp: now, isRevalidating: false };
+    }
   }
 
-  return { articles: fresh, source: 'MISS' };
+  const all = cached?.articles || [];
+  const start = (page - 1) * limit;
+  const paginatedArticles = all.slice(start, start + limit);
+  const hasMore = all.length > start + limit;
+
+  return {
+    articles: paginatedArticles,
+    hasMore,
+    total: all.length,
+    source: cacheSource,
+  };
 }

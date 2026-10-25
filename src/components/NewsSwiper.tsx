@@ -212,19 +212,6 @@ export default function NewsSwiper({
     );
   }
 
-  const allSeen = articles.every(a => seenArticleIds.includes(a.id));
-  if (allSeen && !hasMore) {
-    return (
-      <div className="flex items-center justify-center h-screen w-screen bg-background text-foreground p-4 text-center">
-        <div className="bg-card p-6 rounded-lg shadow-xl">
-          <p className="font-headline text-xl mb-2">Você está em dia!</p>
-          <p className="text-muted-foreground">Leu todas as notícias disponíveis. Limpe o histórico ou adicione novos feeds.</p>
-          <Button onClick={onOpenFeedManager} className="mt-4">Gerenciar Feeds</Button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div
       ref={viewportRef}

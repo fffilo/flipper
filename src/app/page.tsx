@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import NewsSwiper from '@/components/NewsSwiper';
 import FeedManager, { type FeedFilter } from '@/components/FeedManager';
 import FlippyLogo from '@/components/FlippyLogo';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Settings, CheckCircle2, RotateCcw } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import type { NewsArticle, FeedSource } from '@/types';
 import { DEFAULT_FEEDS } from '@/types';
 import useLocalStorage from '@/hooks/useLocalStorage';
@@ -15,25 +15,34 @@ export default function Home() {
   const [filter, setFilter] = useState<FeedFilter>('all');
   const [isFeedManagerOpen, setIsFeedManagerOpen] = useState(false);
   const [sessionArticles, setSessionArticles] = useState<NewsArticle[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isFetchingMoreRef = useRef(false);
 
   // Hashes compactos de 8 caracteres das notícias já vistas no localStorage
   const [seenArticleIds, setSeenArticleIds] = useLocalStorage<string[]>('flippy-seenArticleIds', []);
   const [feedSources, setFeedSources] = useLocalStorage<FeedSource[]>('flippy-feedSources', DEFAULT_FEEDS);
 
-  // Carrega e monta a fila de leitura estável da sessão
+  // Carregamento inicial ou troca de filtro
   const loadFeed = useCallback(async (currentFilter: FeedFilter, isPullRefresh = false) => {
     if (isPullRefresh) setIsRefreshing(true);
     else setIsLoading(true);
     setError(null);
+    setPage(1);
+    setHasMore(true);
 
     try {
       const params = new URLSearchParams();
       if (currentFilter === 'br') params.set('region', 'br');
       if (currentFilter === 'world') params.set('region', 'world');
       if (currentFilter === 'tech') params.set('category', 'tech');
+      params.set('page', '1');
+      params.set('limit', '20');
 
       const res = await fetch(`/api/feed?${params.toString()}`);
       if (!res.ok) throw new Error(`Falha ao carregar notícias (${res.status})`);
@@ -44,11 +53,12 @@ export default function Home() {
       if (rawArticles.length === 0) {
         setError('Nenhuma notícia recente encontrada no momento.');
         setSessionArticles([]);
+        setHasMore(false);
         return;
       }
 
       // Snapshot estável para a sessão:
-      // O feed NÃO se reordena enquanto o usuário lê para evitar scrolls automáticos
+      // Organiza por: não lidas de hoje -> divisor -> não lidas anteriores -> vistas
       const seenSet = new Set(seenArticleIds);
       const unreadToday = rawArticles.filter(a => a.dayBucket === 'today' && !seenSet.has(a.id));
       const unreadPrevious = rawArticles.filter(a => a.dayBucket !== 'today' && !seenSet.has(a.id));
@@ -81,11 +91,11 @@ export default function Home() {
         };
         queue = [dividerCard, ...unreadPrevious];
       } else {
-        // Se tudo já foi lido, exibe a lista para rever
         queue = seenArticles;
       }
 
       setSessionArticles(queue);
+      setHasMore(data.hasMore ?? true);
     } catch (e: any) {
       console.error('[loadFeed] erro:', e);
       setError('Não foi possível conectar às fontes de notícias. Verifique sua conexão.');
@@ -99,6 +109,46 @@ export default function Home() {
   useEffect(() => {
     loadFeed(filter);
   }, [filter, loadFeed]);
+
+  // Carrega mais notícias no fim do scroll (Paginação infinita)
+  const handleLoadMore = useCallback(async () => {
+    if (isFetchingMoreRef.current || !hasMore || isLoadingMore) return;
+    isFetchingMoreRef.current = true;
+    setIsLoadingMore(true);
+
+    try {
+      const nextPage = page + 1;
+      const params = new URLSearchParams();
+      if (filter === 'br') params.set('region', 'br');
+      if (filter === 'world') params.set('region', 'world');
+      if (filter === 'tech') params.set('category', 'tech');
+      params.set('page', nextPage.toString());
+      params.set('limit', '15');
+
+      const res = await fetch(`/api/feed?${params.toString()}`);
+      if (!res.ok) throw new Error('Falha ao paginar notícias');
+
+      const data = await res.json();
+      const moreArticles: NewsArticle[] = data.articles || [];
+
+      if (moreArticles.length > 0) {
+        setSessionArticles(prev => {
+          const currentIds = new Set(prev.map(a => a.id));
+          const newUnique = moreArticles.filter(a => !currentIds.has(a.id));
+          return [...prev, ...newUnique];
+        });
+        setPage(nextPage);
+        setHasMore(data.hasMore ?? false);
+      } else {
+        setHasMore(false);
+      }
+    } catch (e) {
+      console.error('[handleLoadMore] erro:', e);
+    } finally {
+      setIsLoadingMore(false);
+      isFetchingMoreRef.current = false;
+    }
+  }, [filter, hasMore, isLoadingMore, page]);
 
   const handleSeenArticleIds = useCallback(
     (ids: string[] | ((prev: string[]) => string[])) => {
@@ -134,7 +184,7 @@ export default function Home() {
         </Button>
       </header>
 
-      {/* Loading Skeleton */}
+      {/* Loading Skeleton Inicial */}
       {isLoading && (
         <div className="h-screen w-screen flex flex-col items-center justify-center p-4 relative">
           <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/60 to-black/30 pointer-events-none" />
@@ -164,16 +214,16 @@ export default function Home() {
         </div>
       )}
 
-      {/* Feed Principal com NewsSwiper */}
+      {/* Feed Principal com NewsSwiper e Scroll Infinito */}
       {!isLoading && !error && sessionArticles.length > 0 && (
         <NewsSwiper
           articles={sessionArticles}
           seenArticleIds={seenArticleIds}
           setSeenArticleIds={handleSeenArticleIds}
           onOpenFeedManager={() => setIsFeedManagerOpen(true)}
-          onLoadMore={() => {}}
-          hasMore={false}
-          isLoadingMore={false}
+          onLoadMore={handleLoadMore}
+          hasMore={hasMore}
+          isLoadingMore={isLoadingMore}
         />
       )}
 
