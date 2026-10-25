@@ -1,6 +1,6 @@
 import type { CleanArticle } from './types';
 
-const MAX_AGE_HOURS = 48; // Notícias com mais de 48h são descartadas
+const MAX_AGE_HOURS = 72; // Notícias com mais de 72h (3 dias) são descartadas
 const BAD_IMAGE_PATTERNS = /(favicon|tracking|pixel|1x1|16x16|32x32|spacer\.gif|blank\.gif)/i;
 
 const STOPWORDS = new Set([
@@ -51,9 +51,25 @@ export function formatRelativeTime(dateString: string): string {
     const diffHours = Math.floor(diffMin / 60);
     if (diffHours < 24) return `há ${diffHours} h`;
     const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return 'ontem';
     return `há ${diffDays} d`;
   } catch {
     return '';
+  }
+}
+
+export function getDayBucket(dateString: string): 'today' | 'yesterday' | 'older' {
+  try {
+    const then = new Date(dateString).getTime();
+    const now = Date.now();
+    const diffMs = now - then;
+    const oneDay = 24 * 60 * 60 * 1000;
+
+    if (diffMs <= oneDay) return 'today';
+    if (diffMs <= 2 * oneDay) return 'yesterday';
+    return 'older';
+  } catch {
+    return 'older';
   }
 }
 
@@ -66,7 +82,7 @@ export function applyQualityGates(articles: CleanArticle[]): CleanArticle[] {
     // Rejeita notícias sem imagem válida
     if (!a.imageUrl || BAD_IMAGE_PATTERNS.test(a.imageUrl)) return false;
 
-    // Rejeita notícias velhas
+    // Rejeita notícias com mais de 72h
     const pubTime = new Date(a.publishedAt).getTime();
     if (isNaN(pubTime) || now - pubTime > maxAgeMs) return false;
 
@@ -103,18 +119,27 @@ export function applyQualityGates(articles: CleanArticle[]): CleanArticle[] {
 
     if (!isDuplicate) {
       current.relativeTime = formatRelativeTime(current.publishedAt);
+      current.dayBucket = getDayBucket(current.publishedAt);
       deduped.push(current);
     }
   }
 
-  // 3. Intercalador Anti-Monopólio (Round-Robin balanceado)
-  return balanceSources(deduped);
+  // 3. Segmenta por Janela Temporal (Hoje -> Ontem -> Anteriores)
+  const todayList = deduped.filter(a => a.dayBucket === 'today');
+  const yesterdayList = deduped.filter(a => a.dayBucket === 'yesterday');
+  const olderList = deduped.filter(a => a.dayBucket === 'older');
+
+  // Intercala cada bucket para balancear fontes
+  return [
+    ...balanceSources(todayList),
+    ...balanceSources(yesterdayList),
+    ...balanceSources(olderList),
+  ];
 }
 
 function balanceSources(articles: CleanArticle[]): CleanArticle[] {
   if (articles.length <= 2) return articles;
 
-  // Agrupa por fonte
   const pools = new Map<string, CleanArticle[]>();
   for (const a of articles) {
     const list = pools.get(a.source.id) || [];
@@ -127,7 +152,7 @@ function balanceSources(articles: CleanArticle[]): CleanArticle[] {
 
   while (remaining) {
     remaining = false;
-    for (const [sourceId, list] of pools.entries()) {
+    for (const [_, list] of pools.entries()) {
       if (list.length > 0) {
         const item = list.shift()!;
         result.push(item);

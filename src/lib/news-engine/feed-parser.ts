@@ -1,5 +1,6 @@
 import { parseStringPromise } from 'xml2js';
 import type { CleanArticle, FeedSourceConfig } from './types';
+import { getArticleUniqueId } from './hash';
 
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|avif)(\?.*)?$/i;
 
@@ -207,8 +208,10 @@ export async function parseFeed(xml: string, source: FeedSourceConfig): Promise<
       }
     }
 
+    const articleId = getArticleUniqueId(originalUrl, title);
+
     articles.push({
-      id: `${source.id}-${idx}-${encodeURIComponent(originalUrl.slice(-30))}`,
+      id: articleId,
       title,
       summary,
       description: summary,

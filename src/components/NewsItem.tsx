@@ -3,7 +3,7 @@
 import type { NewsArticle } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, ChevronDown, CheckCircle2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { generateSummary } from '@/app/actions';
 
@@ -27,6 +27,30 @@ export default function NewsItem({ article, isActive, shouldFetchSummary, onArti
     setLoadingAi(false);
     fetchedRef.current = false;
   }, [article.id]);
+
+  // Se for o card divisor de transição
+  if (article.isDivider) {
+    return (
+      <div className="relative w-full h-full flex flex-col items-center justify-center p-6 bg-gradient-to-b from-[#121212] via-[#161c28] to-[#121212] text-center">
+        <div className="w-16 h-16 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center mb-6 shadow-lg shadow-primary/10">
+          <CheckCircle2 className="w-8 h-8 text-primary" />
+        </div>
+
+        <h2 className="font-headline text-2xl sm:text-3xl font-bold mb-3 text-white max-w-sm">
+          {article.title}
+        </h2>
+
+        <p className="font-body text-sm sm:text-base text-white/70 max-w-xs mb-8 leading-relaxed">
+          {article.description}
+        </p>
+
+        <div className="flex flex-col items-center gap-2 animate-bounce opacity-80">
+          <span className="text-xs text-white/60 font-body">Deslize para continuar</span>
+          <ChevronDown className="w-5 h-5 text-primary" />
+        </div>
+      </div>
+    );
+  }
 
   // Call Gemini only when description is absent and we have articleText
   useEffect(() => {
@@ -112,7 +136,7 @@ export default function NewsItem({ article, isActive, shouldFetchSummary, onArti
             <div className="flex items-center gap-2 flex-wrap">
               {article.sourceName && (
                 <span
-                  className="font-body text-xs font-semibold px-2 py-0.5 rounded-full backdrop-blur-sm text-white"
+                  className="font-body text-xs font-semibold px-2 py-0.5 rounded-full backdrop-blur-sm text-white shadow-sm"
                   style={{
                     backgroundColor: article.brandColor || article.source?.brandColor || '#29ABE2',
                   }}
@@ -120,6 +144,13 @@ export default function NewsItem({ article, isActive, shouldFetchSummary, onArti
                   {article.sourceName}
                 </span>
               )}
+
+              {article.dayBucket && article.dayBucket !== 'today' && (
+                <span className="font-body text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded bg-white/20 text-white/90 backdrop-blur-sm">
+                  {article.dayBucket === 'yesterday' ? 'Ontem' : 'Anterior'}
+                </span>
+              )}
+
               {article.relativeTime && (
                 <span className="text-xs text-white/70 font-body">
                   • {article.relativeTime}

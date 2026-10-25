@@ -23,6 +23,8 @@ interface FeedManagerProps {
   onFilterChange: (filter: FeedFilter) => void;
   onRefresh: () => void;
   isRefreshing?: boolean;
+  seenCount?: number;
+  onClearHistory?: () => void;
 }
 
 export default function FeedManager({
@@ -34,6 +36,8 @@ export default function FeedManager({
   onFilterChange,
   onRefresh,
   isRefreshing = false,
+  seenCount = 0,
+  onClearHistory,
 }: FeedManagerProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -264,6 +268,27 @@ export default function FeedManager({
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Histórico de Notícias Lidas */}
+          <div className="pt-3 border-t border-border/40 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-foreground">Histórico de Leitura</p>
+              <p className="text-[11px] text-muted-foreground">{seenCount} notícias marcadas como vistas</p>
+            </div>
+            {seenCount > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  onClearHistory?.();
+                  toast({ title: 'Histórico redefinido!', description: 'Todas as notícias voltarão a aparecer.' });
+                }}
+                className="text-xs h-7 px-2.5 border-border/60"
+              >
+                Limpar
+              </Button>
+            )}
           </div>
         </div>
       </SheetContent>

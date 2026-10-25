@@ -1,5 +1,5 @@
 export interface NewsArticle {
-  id: string;
+  id: string; // Hash compacto único
   title: string;
   imageUrl: string;
   description: string;
@@ -21,8 +21,10 @@ export interface NewsArticle {
   region?: 'br' | 'world';
   publishedAt?: string;
   relativeTime?: string;
+  dayBucket?: 'today' | 'yesterday' | 'older';
   brandColor?: string;
   relatedSources?: Array<{ name: string; url: string }>;
+  isDivider?: boolean;
 }
 
 export interface FeedSource {

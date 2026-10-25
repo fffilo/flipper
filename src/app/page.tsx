@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import NewsSwiper from '@/components/NewsSwiper';
 import FeedManager, { type FeedFilter } from '@/components/FeedManager';
 import FlippyLogo from '@/components/FlippyLogo';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Settings } from 'lucide-react';
+import { Settings, CheckCircle2, RotateCcw } from 'lucide-react';
 import type { NewsArticle, FeedSource } from '@/types';
 import { DEFAULT_FEEDS } from '@/types';
 import useLocalStorage from '@/hooks/useLocalStorage';
@@ -19,8 +19,9 @@ export default function Home() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [feedSources, setFeedSources] = useLocalStorage<FeedSource[]>('flippy-feedSources', DEFAULT_FEEDS);
+  // Armazena hashes compactos de 8 caracteres das notícias já vistas
   const [seenArticleIds, setSeenArticleIds] = useLocalStorage<string[]>('flippy-seenArticleIds', []);
+  const [feedSources, setFeedSources] = useLocalStorage<FeedSource[]>('flippy-feedSources', DEFAULT_FEEDS);
 
   const loadFeed = useCallback(async (currentFilter: FeedFilter, isPullRefresh = false) => {
     if (isPullRefresh) setIsRefreshing(true);
@@ -59,11 +60,64 @@ export default function Home() {
     (ids: string[] | ((prev: string[]) => string[])) => {
       setSeenArticleIds(prev => {
         const next = typeof ids === 'function' ? ids(prev) : ids;
-        return next.length > 500 ? next.slice(-500) : next;
+        // Mantém os últimos 1000 hashes compactos (~8 KB no localStorage)
+        return next.length > 1000 ? next.slice(-1000) : next;
       });
     },
     [setSeenArticleIds]
   );
+
+  const handleClearHistory = useCallback(() => {
+    setSeenArticleIds([]);
+  }, [setSeenArticleIds]);
+
+  // Fila Inteligente: Não lidas de hoje -> Aviso de transição -> Não lidas anteriores -> Vistas
+  const feedQueue = useMemo(() => {
+    if (articles.length === 0) return [];
+    const seenSet = new Set(seenArticleIds);
+
+    const unreadToday = articles.filter(a => a.dayBucket === 'today' && !seenSet.has(a.id));
+    const unreadPrevious = articles.filter(a => a.dayBucket !== 'today' && !seenSet.has(a.id));
+    const seenArticles = articles.filter(a => seenSet.has(a.id));
+
+    // 1. Há notícias não lidas de hoje
+    if (unreadToday.length > 0) {
+      if (unreadPrevious.length > 0) {
+        const dividerCard: NewsArticle = {
+          id: 'divider-previous-news',
+          title: 'Você está em dia com as novidades de hoje! 🎉',
+          description: 'Deslize para ver as notícias de ontem e dias anteriores que você ainda não conferiu.',
+          imageUrl: '',
+          originalUrl: '#',
+          isDivider: true,
+        };
+        return [...unreadToday, dividerCard, ...unreadPrevious];
+      }
+      return unreadToday;
+    }
+
+    // 2. Todas de hoje lidas, mas há de ontem/anteriores
+    if (unreadPrevious.length > 0) {
+      const dividerCard: NewsArticle = {
+        id: 'divider-starting-previous',
+        title: 'Tudo lido de hoje! 🌅',
+        description: 'Você já conferiu todas as notícias de hoje. Continuando com as matérias de ontem e anteriores...',
+        imageUrl: '',
+        originalUrl: '#',
+        isDivider: true,
+      };
+      return [dividerCard, ...unreadPrevious];
+    }
+
+    // 3. Tudo foi lido!
+    return seenArticles;
+  }, [articles, seenArticleIds]);
+
+  const allArticlesRead = useMemo(() => {
+    if (articles.length === 0) return false;
+    const seenSet = new Set(seenArticleIds);
+    return articles.every(a => seenSet.has(a.id));
+  }, [articles, seenArticleIds]);
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-background">
@@ -114,10 +168,33 @@ export default function Home() {
         </div>
       )}
 
+      {/* Tela quando o usuário já leu todas as notícias disponíveis */}
+      {!isLoading && !error && allArticlesRead && (
+        <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-b from-[#121212] via-[#1a2230] to-[#121212] text-foreground p-6 text-center">
+          <div className="bg-black/50 backdrop-blur-lg p-8 rounded-3xl border border-white/10 max-w-sm shadow-2xl flex flex-col items-center">
+            <div className="w-16 h-16 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center mb-5 shadow-lg shadow-primary/20">
+              <CheckCircle2 className="w-8 h-8 text-primary" />
+            </div>
+            <h2 className="font-headline text-2xl font-bold text-white mb-2">Tudo em Dia!</h2>
+            <p className="text-sm text-white/70 mb-6 leading-relaxed">
+              Você já leu todas as notícias disponíveis no momento. Volte mais tarde para novas atualizações ou redefina o histórico para rever.
+            </p>
+            <Button
+              onClick={handleClearHistory}
+              variant="outline"
+              className="w-full border-white/20 bg-white/5 hover:bg-white/10 text-white font-body"
+            >
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Rever Notícias Lidas
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Feed Principal com NewsSwiper */}
-      {!isLoading && !error && articles.length > 0 && (
+      {!isLoading && !error && !allArticlesRead && feedQueue.length > 0 && (
         <NewsSwiper
-          articles={articles}
+          articles={feedQueue}
           seenArticleIds={seenArticleIds}
           setSeenArticleIds={handleSeenArticleIds}
           onOpenFeedManager={() => setIsFeedManagerOpen(true)}
@@ -127,7 +204,7 @@ export default function Home() {
         />
       )}
 
-      {/* Menu Lateral de Configurações e Gerenciador de Feeds */}
+      {/* Menu Lateral de Configurações */}
       <FeedManager
         isOpen={isFeedManagerOpen}
         onOpenChange={setIsFeedManagerOpen}
@@ -137,6 +214,8 @@ export default function Home() {
         onFilterChange={setFilter}
         onRefresh={() => loadFeed(filter, true)}
         isRefreshing={isRefreshing}
+        seenCount={seenArticleIds.length}
+        onClearHistory={handleClearHistory}
       />
     </main>
   );
