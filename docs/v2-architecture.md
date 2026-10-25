@@ -111,3 +111,21 @@ export interface CleanArticle {
   - Gerenciador de fontes com cores oficiais, alternância de visibilidade e botão de exclusão.
   - Campo de auto-descoberta para adicionar novos sites apenas pelo domínio.
 - **Pré-carregamento Inteligente (`NewsSwiper.tsx`)**: Enquanto o card atual está visível, as imagens dos próximos dois cards são carregadas em background no navegador, eliminando travamentos de transição.
+
+
+---
+
+## 6. Sistema de Hash Canônico e Feed em Camadas (D-0 vs D-1/D-2)
+
+### 6.1 Identificador Único Compacto (`src/lib/news-engine/hash.ts`)
+- **Canonização**: Remove automaticamente parâmetros de tracking (`utm_*`, `at_*`, `fbclid`, etc.) e normaliza a URL.
+- **Hash FNV-1a (32-bit)**: Gera um ID determinístico de apenas **8 caracteres hexadecimais** (ex: `f6c2c1b0`).
+- **Armazenamento Otimizado**: 1.000 notícias lidas ocupam meros **8 KB** no `localStorage`, com pruning automático em fila circular (FIFO).
+
+### 6.2 Feed em Camadas com Transição Visual
+- **Prioridade 1**: Notícias de **Hoje (D-0 / últimas 24h)** ainda não vistas pelo usuário.
+- **Card Divisor de Transição**: Quando as notícias de hoje acabam na rolagem, um card com animação suave avisa:
+  > *"Você está em dia com as novidades de hoje! 🎉 Deslize para ver as notícias de ontem e dias anteriores..."*
+- **Prioridade 2**: Notícias de **Ontem (D-1)** e anteriores ainda não vistas.
+- **Detecção de Dwell Time**: Cada notícia só é marcada como vista se o usuário permanecer nela por pelo menos 1.2 segundos (evitando que scrolls rápidos marquem cards acidentalmente).
+- **Tela de Conclusão**: Se todas as notícias disponíveis forem consumidas, uma tela especial de parabéns permite rever as notícias lidas ou aguardar novas atualizações.
